@@ -27,11 +27,17 @@ import {
   KERNEL_FACTORY_ADDRESS,
   KERNEL_IMPL_ADDRESS,
   MULTISEND_ADDR,
+  KERNEL_NAME,
+  KERNEL_VERSION
 } from "./constants.js";
+import { encodeAbiParameters } from "viem";
+import { keccak256 } from "viem";
 import { encodeMultiSend } from "./utils.js";
 import { MultiSendAbi } from "./abis/MultiSendAbi.js";
 import { polygonMumbai } from "viem/chains";
 import { getChainId } from "./api/index.js";
+import { parseAbiParameters } from "viem/utils";
+import { toHex, concat } from "viem";
 import { createZeroDevPublicErc4337Client } from "./client/create-client.js";
 import type { PaymasterAndBundlerProviders } from "./paymaster/types.js";
 
@@ -389,4 +395,39 @@ export class KernelSmartContractAccount<
       throw new Error("Factory Code generation failed");
     }
   }
+
+  async createERC1271Digest(hash: Hex): Promise<Hex> {
+    const domainSeparator = await this.getDomainSeparator();
+    const digest = keccak256(
+      concat([
+        toHex("\x19\x01"),
+        domainSeparator,
+        hash,
+      ])
+    ) as Hex;
+    return digest as Hex;
+  }
+
+  protected async getDomainSeparator(): Promise<Hex> {
+    const chainId = await this.rpcProvider.getChainId();
+    const address = await this.getAddress();
+
+    const domainSeparator = keccak256(
+      encodeAbiParameters(
+        parseAbiParameters(
+          "bytes32 typeHash, bytes32 nameHash, bytes32 versionHash, uint256 chainId, address verifyingContract"
+        ),
+        [
+          keccak256(toBytes("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")),
+          keccak256(toBytes(KERNEL_NAME)),
+          keccak256(toBytes(KERNEL_VERSION)),
+          BigInt(chainId),
+          address,
+        ]
+      )
+    ) as Hex;
+    return domainSeparator as Hex;
+  }
 }
+
+

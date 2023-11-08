@@ -2,6 +2,8 @@ import { parseUnits, type Hex } from "viem";
 import type { IGasTokenAddresses } from "./paymaster/types.js";
 import { polygon } from "viem/chains";
 
+export const KERNEL_NAME = "Kernel";
+export const KERNEL_VERSION = "2.2";
 export const DEFAULT_SEND_TX_MAX_RETRIES = 3;
 export const DEFAULT_SEND_TX_RETRY_INTERVAL_MS = 60000; // 1 minutes
 export const BUNDLER_URL = "https://v0-6-meta-bundler.onrender.com";

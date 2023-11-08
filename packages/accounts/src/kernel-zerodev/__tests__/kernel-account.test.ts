@@ -11,6 +11,7 @@ import { polygonMumbai } from "viem/chains";
 import { generatePrivateKey } from "viem/accounts";
 import { LocalAccountSigner } from "@alchemy/aa-core";
 import { TEST_ERC20Abi } from "../abis/Test_ERC20Abi.js";
+import { KernelAccountAbi } from "../abis/KernelAccountAbi.js";
 import { ECDSAProvider } from "../validator-provider/index.js";
 import { CHAIN_ID_TO_NODE } from "../constants.js";
 
@@ -533,6 +534,33 @@ describe("Kernel Account Tests", () => {
       const signer4 = ecdsaProvider.getAccount();
       //contract not deployed
       expect(await signer4.isAccountDeployed()).eql(false);
+    },
+    { timeout: 100000 }
+  );
+  it(
+    "should return magic value for ERC1271 isValidSignature",
+    async () => {
+      let ecdsaProvider = await ECDSAProvider.init({
+        projectId: config.projectId,
+        owner: mockOwner,
+      });
+      const signer = ecdsaProvider.getAccount();
+      //contract already deployed
+      expect(await signer.isAccountDeployed()).eql(true);
+      const address = await signer.getAddress();
+
+      const hash = "0x1112" as Hex;
+      const digest = await signer.createERC1271Digest(hash);
+      const sig = await signer.signMessage(digest);
+
+      const returnValue = await client.readContract({
+        address: address,
+        abi: KernelAccountAbi,
+        functionName: "isValidSignature",
+        args: [hash, sig],
+      });
+
+      expect(returnValue).eql("0x1626ba7e");
     },
     { timeout: 100000 }
   );
