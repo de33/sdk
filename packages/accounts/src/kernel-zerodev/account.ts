@@ -7,6 +7,10 @@ import {
   type Hex,
   toBytes,
   type Transport,
+  createPublicClient,
+  type PublicClient,
+  type Chain,
+  http
 } from "viem";
 import { KernelBaseValidator } from "./validator/base.js";
 import { KernelAccountAbi } from "./abis/KernelAccountAbi.js";
@@ -27,8 +31,7 @@ import {
   KERNEL_FACTORY_ADDRESS,
   KERNEL_IMPL_ADDRESS,
   MULTISEND_ADDR,
-  KERNEL_NAME,
-  KERNEL_VERSION
+  CHAIN_ID_TO_NODE
 } from "./constants.js";
 import { encodeAbiParameters } from "viem";
 import { keccak256 } from "viem";
@@ -56,6 +59,7 @@ export interface KernelSmartAccountParams<
   bundlerProvider?: PaymasterAndBundlerProviders;
   defaultValidator?: KernelBaseValidator;
   initCode?: Hex;
+  chain?: Chain;
 }
 
 export function isKernelAccount(
@@ -70,8 +74,10 @@ export class KernelSmartContractAccount<
   private readonly factoryAddress: Address;
   private readonly index: bigint;
   private initCode?: Hex;
+  protected chain?: Chain;
   validator?: KernelBaseValidator;
   defaultValidator?: KernelBaseValidator;
+  publicClient?: PublicClient<Transport, Chain>;
 
   constructor(params: KernelSmartAccountParams) {
     super({
@@ -85,6 +91,10 @@ export class KernelSmartContractAccount<
     this.validator = params.validator;
     this.defaultValidator = params.defaultValidator;
     this.initCode = params.initCode;
+    this.publicClient = createPublicClient({
+      transport: http(CHAIN_ID_TO_NODE[this.chain?.id ?? polygonMumbai.id]),
+      chain: this.chain ?? polygonMumbai,
+    });
   }
 
   public static async init(
@@ -126,6 +136,13 @@ export class KernelSmartContractAccount<
 
   getDummySignature(): Hex {
     return "0x00000000870fe151d548a1c527c3804866fab30abf28ed17b79d5fc5149f19ca0819fefc3c57f3da4fdf9b10fab3f2f3dca536467ae44943b9dbb8433efe7760ddd72aaa1c";
+  }
+
+  getPublicClient(): PublicClient<Transport, Chain> {
+    if (!this.publicClient) {
+      throw new Error("Validator uninitialized: PublicClient missing");
+    }
+    return this.publicClient;
   }
 
   async getInitCode(): Promise<Hex> {
@@ -399,11 +416,7 @@ export class KernelSmartContractAccount<
   async createERC1271Digest(hash: Hex): Promise<Hex> {
     const domainSeparator = await this.getDomainSeparator();
     const digest = keccak256(
-      concat([
-        toHex("\x19\x01"),
-        domainSeparator,
-        hash,
-      ])
+      concat([toHex("\x19\x01"), domainSeparator, hash])
     ) as Hex;
     return digest as Hex;
   }
@@ -411,6 +424,22 @@ export class KernelSmartContractAccount<
   protected async getDomainSeparator(): Promise<Hex> {
     const chainId = await this.rpcProvider.getChainId();
     const address = await this.getAddress();
+    if (!this.publicClient) {
+      throw new Error(
+        "The public client is missing which is required for the account initialization."
+      );
+    }
+
+    const KERNEL_NAME = await this.publicClient.readContract({
+      address: address,
+      abi: KernelAccountAbi,
+      functionName: "name",
+    });
+    const KERNEL_VERSION = await this.publicClient.readContract({
+      address: address,
+      abi: KernelAccountAbi,
+      functionName: "version",
+    });
 
     const domainSeparator = keccak256(
       encodeAbiParameters(
@@ -418,7 +447,11 @@ export class KernelSmartContractAccount<
           "bytes32 typeHash, bytes32 nameHash, bytes32 versionHash, uint256 chainId, address verifyingContract"
         ),
         [
-          keccak256(toBytes("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")),
+          keccak256(
+            toBytes(
+              "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+            )
+          ),
           keccak256(toBytes(KERNEL_NAME)),
           keccak256(toBytes(KERNEL_VERSION)),
           BigInt(chainId),
